@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import './App.css'
+import Button from './components/button';
+import textBox from './components/textBox';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 
@@ -22,7 +24,9 @@ function App() {
         </div>
       </nav>
 
-      <h1>Hello from React</h1>
+      <h1>Provide a Prompt:</h1>
+      <textBox/>
+      <Button/>
     </div>
   )
 }
