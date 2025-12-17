@@ -1,7 +1,7 @@
 function Button() {
   return (
     <button className="btn btn-primary">
-      Click me
+      Submit Prompt
     </button>
   );
 }
