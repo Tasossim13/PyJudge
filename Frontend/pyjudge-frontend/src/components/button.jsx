@@ -1,6 +1,6 @@
 function Button() {
   return (
-    <button className="btn btn-primary">
+    <button className="btn btn-primary" onClick={onclick}>
       Submit Prompt
     </button>
   );

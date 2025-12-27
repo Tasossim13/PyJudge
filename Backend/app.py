@@ -1,5 +1,5 @@
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from google import genai
 from google.genai.errors import APIError
@@ -23,46 +23,15 @@ try:
 except Exception as e:
     print(f"ERROR: Failed to initialize Gemini Client. Details: {e}")
 
-@app.route("/test_chat", methods=["GET"])
-def test_chat():
-    """
-    Στέλνει ένα απλό prompt στο Gemini χωρίς περιορισμούς και επιστρέφει την απάντηση.
-    """
-    if not client:
-        return jsonify({"error": "Gemini API Client failed to initialize. Check GEMINI_API_KEY environment variable."}), 500
-    
-    try:
-        # Απλό, χαλαρό prompt για να εξασφαλίσουμε απάντηση
-        prompt = "Απάντησε με μια τυπική φράση χαιρετισμού, όπως 'Καλησπέρα'."
-        
-        # Κλήση του Gemini API χωρίς το config για να μην μπλοκάρει η απάντηση
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[prompt]
-        )
-        
-        # Ελέγχουμε αν υπάρχει κείμενο στην απάντηση
-        if response.text:
-            answer = response.text.strip()
-        else:
-            # Χειρισμός σφάλματος αν το μοντέλο μπλοκάρει
-            if response.candidates and response.candidates[0].finish_reason.name == 'SAFETY':
-                block_reason = response.candidates[0].finish_reason.name
-                answer = f"Αποτυχία απάντησης λόγω κανόνων ασφαλείας. Δοκιμάστε διαφορετικό prompt."
-            else:
-                 # Γενικό σφάλμα αν δεν υπάρχει κείμενο
-                 answer = "Αποτυχία απάντησης: Το μοντέλο δεν επέστρεψε κείμενο."
-        
-        return jsonify({"result": answer})
-        
-    except APIError as e:
-        # Χειρισμός σφαλμάτων API
-        print(f"Gemini API Error: {e}")
-        return jsonify({"error": f"Gemini API Error: {str(e)}"}), 500
-    except Exception as e:
-        # Χειρισμός άλλων σφαλμάτων
-        print(f"General Error: {e}")
-        return jsonify({"error": f"General Server Error: {str(e)}"}), 500
+@app.route("/test_chat", methods=["POST"])
+def ask():
+    data= request.json
+    prompt = data.get("prompt","")
+    print("Prompt: ", prompt)
+    reply = f"Prompt Received.../{prompt}"
+
+    return jsonify({"answer": reply})
+
 
 @app.route("/", methods=["GET"])
 def home():

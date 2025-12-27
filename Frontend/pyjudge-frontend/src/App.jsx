@@ -8,6 +8,18 @@ import InputFIles from './components/InputFiles';
 
 
 function App() {
+  const [prompt, setPrompt] = useState("")
+  const [answer, setAnswer] = useState("")
+  const sendPrompt = async () => {
+    const res = await fetch("http://127.0.0.1:5000/test_chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt })
+    })
+
+    const data = await res.json()
+    setAnswer(data.answer)
+  }
   return (
     <div className="header">
       <nav className="navbar fixed-top bg-body-tertiary">
@@ -27,7 +39,12 @@ function App() {
 
       <h1>Step 1</h1>
       <h2>Provide a Prompt:</h2>
-      <TextBox/>
+      <TextBox value={prompt} onchange={setPrompt}/>
+      {answer && (
+        <div className="alert alert-secondary mt-3">
+          {answer}
+        </div>
+      )}
       <Button/>
     <div className='sectionTwo'>
       <h1>Step 2</h1>
@@ -38,6 +55,9 @@ function App() {
       <h1>Step 3</h1>
       <h2>Upload Students Exercise </h2>
       <InputFIles/>
+    </div>
+    <div>
+      
     </div>
     </div>
   )
