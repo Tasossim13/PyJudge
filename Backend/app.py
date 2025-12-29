@@ -25,10 +25,19 @@ except Exception as e:
 
 @app.route("/test_chat", methods=["POST"])
 def ask():
-    data= request.json
-    prompt = data.get("prompt","")
-    print("Prompt: ", prompt)
-    reply = f"Prompt Received.../{prompt}"
+    data = request.json
+    prompt = data.get("prompt", "")
+    
+    try:
+        # Καλούμε το Gemini API
+        response = client.chat_completions.create(
+            model="chat-bison-001",
+            messages=[{"author": "user", "content": prompt}]
+        )
+        # Παίρνουμε το κείμενο της απάντησης
+        reply = response.output_text
+    except Exception as e:
+        reply = f"Error: {str(e)}"
 
     return jsonify({"answer": reply})
 

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import Button from './components/button';
-import TextBox from './components/textBox';
+import Button from './components/Βutton';
+import TextBox from './components/TextBox';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import './App.css'
@@ -11,13 +11,13 @@ function App() {
   const [prompt, setPrompt] = useState("")
   const [answer, setAnswer] = useState("")
   const sendPrompt = async () => {
-    const res = await fetch("http://127.0.0.1:5000/test_chat", {
+    const response = await fetch("http://127.0.0.1:5000/test_chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify({ prompt: prompt })
     })
 
-    const data = await res.json()
+    const data = await response.json()
     setAnswer(data.answer)
   }
   return (
@@ -39,13 +39,14 @@ function App() {
 
       <h1>Step 1</h1>
       <h2>Provide a Prompt:</h2>
-      <TextBox value={prompt} onchange={setPrompt}/>
+      <TextBox value={prompt} onChange={setPrompt}/>
       {answer && (
         <div className="alert alert-secondary mt-3">
           {answer}
         </div>
       )}
-      <Button/>
+      <Button onClick={sendPrompt}/>
+      <p>typed text: {prompt}</p>
     <div className='sectionTwo'>
       <h1>Step 2</h1>
       <h2>Upload Your Exercises And Solutions</h2>
@@ -56,9 +57,7 @@ function App() {
       <h2>Upload Students Exercise </h2>
       <InputFIles/>
     </div>
-    <div>
-      
-    </div>
+
     </div>
   )
 }
