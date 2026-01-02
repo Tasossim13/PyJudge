@@ -1,8 +1,10 @@
+import base64
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from google import genai
-from google.genai.errors import APIError
+from google.genai import types
+
 
 # =================================================================
 # GEMINI_API_KEY = "AIzaSyA_xTDkSb4bsYCgnoCFKWbnmyUAU2QygpA"
@@ -25,21 +27,39 @@ except Exception as e:
 
 @app.route("/test_chat", methods=["POST"])
 def ask():
+    full_reply = ""
     data = request.json
-    prompt = data.get("prompt", "")
-    
-    try:
-        # Καλούμε το Gemini API
-        response = client.chat_completions.create(
-            model="chat-bison-001",
-            messages=[{"author": "user", "content": prompt}]
-        )
-        # Παίρνουμε το κείμενο της απάντησης
-        reply = response.output_text
-    except Exception as e:
-        reply = f"Error: {str(e)}"
+    prompt = data.get("prompt","hello")
+    model = "gemini-robotics-er-1.5-preview"
+    contents = [
+    types.Content(
+        role="user",
+        parts=[
+            types.Part.from_text(text=prompt),
+        ],
+    ),
+]
+    tools = [
+    types.Tool(googleSearch=types.GoogleSearch(
+    )),
+]
+    generate_content_config = types.GenerateContentConfig(
+    thinking_config=types.ThinkingConfig(
+        thinking_budget=-1,
+    ),
+    tools=tools,
+)
 
-    return jsonify({"answer": reply})
+    for chunk in client.models.generate_content_stream(
+        model=model,
+        contents=contents,
+        config=generate_content_config,
+):
+        if(chunk.text):
+            full_reply +=chunk.text
+
+    return jsonify({"answer": full_reply})
+        
 
 
 @app.route("/", methods=["GET"])
