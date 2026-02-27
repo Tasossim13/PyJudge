@@ -8,9 +8,6 @@ from groq import Groq
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from grade import grade_submission, check_restrictions
-import os
-import shutil
-import zipfile
 from flask import jsonify, send_file
 
 # --- Ρυθμίσεις Flask ---
