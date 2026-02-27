@@ -1,0 +1,12 @@
+<svg width="300" height="300" viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="150" cy="150" r="140" fill="#020617"></circle>
+
+  <!-- Thin green wreath / ring -->
+  <circle cx="150" cy="150" r="130" fill="none" stroke="#22C55E" stroke-width="4"></circle>
+
+  <!-- Code-style text -->
+  <text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle" font-family="JetBrains Mono, Source Code Pro, monospace" font-size="110" font-weight="700" fill="#22C55E">
+    &lt;PJ&gt;
+  </text>
+</svg>
