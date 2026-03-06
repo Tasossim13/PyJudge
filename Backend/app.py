@@ -5,6 +5,8 @@ import importlib.util
 import os
 import sys
 from groq import Groq
+import openai
+from google import genai
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from grade import grade_submission, check_restrictions
@@ -14,30 +16,27 @@ from flask import jsonify, send_file
 app = Flask(__name__)
 CORS(app) 
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-client = Groq(api_key=GROQ_API_KEY)
-MODEL_NAME = "llama-3.1-8b-instant"
-
 
 # --- Βοηθητική Συνάρτηση Grader---
-def run_doctests(test_text, student_code_text):
+def run_doctests(test_text, student_code_text, filename="student_code"):
     try:
-        # 1. Δημιουργία του προσωρινού αρχείου hw2.py
-        with open("hw2.py", "w", encoding="utf-8") as f:
+        module_name = filename.replace(".py","")
+        temp_file = f"{module_name}.py"
+        # 1. Δημιουργία του προσωρινού αρχείου 
+        with open(temp_file, "w", encoding="utf-8") as f:
             f.write(student_code_text)
 
         # 2. Καθαρισμός του test_text
-        # Αφαιρούμε το 'from hw2 import *' και τυχόν κενές γραμμές που μπερδεύουν το doctest
+        # Αφαιρούμε το 'from hw import *' και τυχόν κενές γραμμές που μπερδεύουν το doctest
         lines = test_text.splitlines()
-        clean_lines = [l for l in lines if "from hw2 import" not in l and l.strip() != ""]
+        clean_lines = [l for l in lines if f"from {module_name} import" not in l and l.strip() != ""]
         test_text = "\n".join(clean_lines)
 
-        # 3. Φόρτωση του Module hw2
-        module_name = "hw2"
+
         if module_name in sys.modules:
             del sys.modules[module_name]
 
-        spec = importlib.util.spec_from_file_location(module_name, "hw2.py")
+        spec = importlib.util.spec_from_file_location(module_name, temp_file)
         student_module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = student_module
         spec.loader.exec_module(student_module)
@@ -48,7 +47,7 @@ def run_doctests(test_text, student_code_text):
         test_env = {name: getattr(student_module, name) for name in dir(student_module)}
         
         # Δημιουργία του test αντικειμένου από το κείμενο
-        test = parser.get_doctest(test_text, test_env, "manual_test", "hw2.py", 0)
+        test = parser.get_doctest(test_text, test_env, "manual_test", temp_file, 0)
         runner = doctest.DocTestRunner(optionflags=doctest.NORMALIZE_WHITESPACE | doctest.ELLIPSIS)
         
         # Εκτέλεση
@@ -67,16 +66,18 @@ def run_doctests(test_text, student_code_text):
 # --- Routes ---
 @app.route("/evaluate", methods=["POST"])
 def evaluate():
+    # 1. Λήψη δεδομένων και Παρόχου
+    provider = request.form.get("provider", "groq") # Default αν δεν σταλεί
+    api_key = request.form.get("api_key")
+    
     if "student" not in request.files:
         return jsonify({"error": "missing student file"}), 400
     
-    # Λήψη των αρχείων από το αίτημα
     student_file = request.files.get("student")
     exercise_file = request.files.get("exercise")
     solution_file = request.files.get("solution")
-    prompt_extra = request.form.get("prompt", "")
-
-    # Δυναμικός προσδιορισμός ονόματος βάσει του solution file
+    
+    # Δυναμικός προσδιορισμός ονόματος
     test_filename = solution_file.filename
     module_name = test_filename.split('_')[0].replace('.txt', '')
     expected_name = f"{module_name}.py"
@@ -88,105 +89,112 @@ def evaluate():
     student_path = os.path.join(temp_dir, expected_name)
     test_path = os.path.join(temp_dir, test_filename)
 
-    # Αποθήκευση των αρχείων
     student_file.save(student_path)
     solution_file.save(test_path)
 
-    # Ανάγνωση κώδικα
     with open(student_path, "r", encoding="utf-8", errors="ignore") as f:
         student_code = f.read()
 
     auto_fix_applied = False
     
-    # --- AUTO-FIX LOGIC ---
+    # --- AUTO-FIX LOGIC ΜΕ ΕΠΙΛΟΓΗ PROVIDER ---
     try:
         check_restrictions(student_code)
     except Exception as e:
-        # Αν υπάρχει SyntaxError, το Gemini Robotics αναλαμβάνει τη διόρθωση
         repair_prompt = f"Ο κώδικας έχει συντακτικό λάθος: {e}. Διόρθωσε ΜΟΝΟ τη σύνταξη (εσοχές κτλ) για να τρέξει. Επίστρεψε ΜΟΝΟ τον κώδικα.\n\n{student_code}"
         
         try:
-            repair_res = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[{"role": "user", "content": repair_prompt}],
-                temperature=0.1
-            )
-            repaired_code = repair_res.choices[0].message.content.replace("```python", "").replace("```", "").strip()
-            with open(student_path, "w", encoding="utf-8") as f:
-                f.write(repaired_code)
-            
-            student_code = repaired_code
-            auto_fix_applied = True
+            repaired_code = None
+            if provider == "openai":
+                client_ai = openai.OpenAI(api_key=api_key)
+                res = client_ai.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": repair_prompt}], temperature=0.1)
+                repaired_code = res.choices[0].message.content
+            elif provider == "gemini":
+                genai.configure(api_key=api_key)
+                model_ai = genai.GenerativeModel('gemini-1.5-flash')
+                res = model_ai.generate_content(repair_prompt)
+                repaired_code = res.text
+            elif provider == "groq":
+                client_ai = Groq(api_key=api_key)
+                res = client_ai.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": repair_prompt}], temperature=0.1)
+                repaired_code = res.choices[0].message.content
+
+            if repaired_code:
+                repaired_code = repaired_code.replace("```python", "").replace("```", "").strip()
+                with open(student_path, "w", encoding="utf-8") as f:
+                    f.write(repaired_code)
+                student_code = repaired_code
+                auto_fix_applied = True
         except:
-            pass # Αν αποτύχει το repair, συνεχίζουμε με τον αρχικό κώδικα
+            pass
 
     # --- ΕΚΤΕΛΕΣΗ GRADER ---
-    # Καλούμε τον Grader με τα σωστά paths
     test_results = grade_submission(test_path, student_path)
 
     if test_results.get('status') == 'Success':
         total = test_results['summary']['total_tests']
         passed = test_results['summary']['passed']
-        failed = test_results['summary']['failed']
         final_grade = test_results['summary']['grade'] 
         details = test_results.get('details', 'Κανένα σφάλμα.')
     else:
-        total = passed = failed = final_grade = 0
+        total = passed = final_grade = 0
         details = f"Σφάλμα Grader: {test_results.get('message', 'Άγνωστο σφάλμα')}"
 
-    # --- ΠΕΝΑΛΤΙ ΠΕΡΙΟΡΙΣΜΩΝ ---
+    # --- ΠΕΝΑΛΤΙ ΠΕΡΙΟΡΙΣΜΩΝ (CHECK RESTRICTIONS) ---
     try:
         func_violations = check_restrictions(student_code)
         if "print_digits" in func_violations and total > 0:
-            exercise_10_tests = 5 
-            penalty_applied = (exercise_10_tests / total) * 10
+            penalty_applied = (5 / total) * 10
             final_grade = round(max(0, final_grade - penalty_applied), 2)
     except:
         pass
 
-    # --- ΤΕΛΙΚΟ PROMPT ---
+    # --- ΤΕΛΙΚΟ PROMPT ΓΙΑ FEEDBACK ---
     fullPrompt = f"""
+    Γραψε ποιο μοντελο εισαι (π.χ Chatpt, Gemini, Groq)
     Είσαι ένας αυστηρός αλλά δίκαιος βοηθός καθηγητή Python. 
-    Η βαθμολόγηση βασίζεται ΑΠΟΚΛΕΙΣΤΙΚΑ στα doctests.
-
-    ΔΕΔΟΜΕΝΑ:
-    - Βαθμολογία: {final_grade}/10 ({passed}/{total} επιτυχίες)
-    - Αυτόματη διόρθωση σύνταξης: {'Ναι' if auto_fix_applied else 'Όχι'}
-
-    ΚΩΔΙΚΑΣ ΦΟΙΤΗΤΗ:
+    Βαθμολογία: {final_grade}/10 ({passed}/{total} επιτυχίες)
+    Auto-fix: {'Ναι' if auto_fix_applied else 'Όχι'}
+    
+    ΚΩΔΙΚΑΣ:
     {student_code}
 
-    ΛΕΠΤΟΜΕΡΕΙΕΣ ΣΦΑΛΜΑΤΩΝ:
+    ΣΦΑΛΜΑΤΑ:
     {details}
-
-    ΟΔΗΓΙΕΣ:
-    1. Ξεκίνα με τη βαθμολογία..
-    2. Αν έγινε auto-fix, εξήγησε στον φοιτητή ότι ο κώδικάς του είχε συντακτικά λάθη.
-    3. Δώσε hints για τις αποτυχίες.
-    4. Θελω το φορματ της απαντησης σου να ειναι επαγγελματικο με στοιχιση, διαχωριστικα με παυλες γιατι θα παει κατευθειαν στον φοιτητη.
+    
+    Δώσε επαγγελματικό feedback με διαχωριστικά και Hints. Μην γραφεις γενικα κλπ
     """
     
-    # --- ΚΛΗΣΗ ΓΙΑ FEEDBACK ---
+    # --- ΚΛΗΣΗ ΓΙΑ ΤΕΛΙΚΟ FEEDBACK ---
     try:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": fullPrompt}],
-            temperature=0.5
-        )
-        return jsonify({
-            "answer": response.choices[0].message.content, 
-            "auto_grade": test_results
-        })
+        final_answer = ""
+        if provider == "openai":
+            client_ai = openai.OpenAI(api_key=api_key)
+            res = client_ai.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": fullPrompt}], temperature=0.5)
+            final_answer = res.choices[0].message.content
+        elif provider == "gemini":
+            client_gemini = genai.Client(api_key=api_key)
+            response = client_gemini.models.generate_content(model="gemini-robotics-er-1.5-preview",contents=fullPrompt)
+            final_answer = response.text
+        elif provider == "groq":
+            client_ai = Groq(api_key=api_key)
+            res = client_ai.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": fullPrompt}], temperature=0.5)
+            final_answer = res.choices[0].message.content
+
+        return jsonify({"answer": final_answer, "auto_grade": test_results})
     except Exception as e:
-        return jsonify({"answer": f"Βαθμός: {final_grade}/10. (AI Feedback Error)", "error": str(e)})
+        return jsonify({"answer": f"Βαθμός: {final_grade}/10. (AI Error)", "error": str(e)})
 
 @app.route("/evaluate_bulk", methods=["POST"])
 def evaluate_bulk():
+    # 1. Λήψη API Key και Provider από το Frontend
+    api_key = request.form.get("api_key")
+    provider = request.form.get("provider", "groq")
     zip_file = request.files.get("students_zip")
     solution_file = request.files.get("solution")
     
-    if not zip_file or not solution_file:
-        return jsonify({"error": "Missing ZIP or Solution file"}), 400
+    if not api_key or not zip_file or not solution_file:
+        return jsonify({"error": "Missing API Key, ZIP or Solution file"}), 400
 
     test_filename = solution_file.filename
     module_to_check = test_filename.split('_')[0].replace('.txt', '')
@@ -216,6 +224,7 @@ def evaluate_bulk():
                 student_py_path = os.path.join(root, file)
                 target_path = os.path.join(root, expected_py_name)
 
+                # Rename student file to match test expectations
                 if student_py_path != target_path:
                     if os.path.exists(target_path): os.remove(target_path)
                     os.rename(student_py_path, target_path)
@@ -228,38 +237,41 @@ def evaluate_bulk():
                 syntax_error_msg = ""
                 auto_fix_applied = False
 
-                # --- 1. AUTO-FIX ΜΕ GROQ ---
+                # --- 1. AUTO-FIX LOGIC ---
                 try:
                     func_violations = check_restrictions(student_code)
                 except Exception as syntax_err:
-                    repair_prompt = f"""
-                    Ο παρακάτω κώδικας Python έχει συντακτικό σφάλμα: {syntax_err}. 
-                    Διόρθωσε ΜΟΝΟ τα συντακτικά λάθη (εσοχές, παρενθέσεις) ώστε να εκτελεστεί.
-                    Επίστρεψε ΜΟΝΟ τον διορθωμένο κώδικα χωρίς markdown.
-                    ΚΩΔΙΚΑΣ: {student_code}
-                    """
+                    repair_prompt = f"Ο κώδικας Python έχει συντακτικό σφάλμα: {syntax_err}. Διόρθωσε ΜΟΝΟ τη σύνταξη ώστε να εκτελεστεί. Επίστρεψε ΜΟΝΟ τον κώδικα.\n\n{student_code}"
+                    
                     try:
-                        # Χρήση Groq για Auto-Fix
-                        repair_res = client.chat.completions.create(
-                            model=MODEL_NAME,
-                            messages=[{"role": "user", "content": repair_prompt}],
-                            temperature=0.1
-                        )
-                        repaired_code = repair_res.choices[0].message.content.replace("```python", "").replace("```", "").strip()
-                        
-                        with open(student_py_path, "w", encoding="utf-8") as f:
-                            f.write(repaired_code)
-                        
-                        student_code = repaired_code
-                        auto_fix_applied = True
-                        syntax_error_msg = "\n(Σημείωση: Ο κώδικας διορθώθηκε αυτόματα από το AI.)"
-                        func_violations = check_restrictions(student_code)
-                    except Exception as ai_err:
-                        syntax_error_msg = f"\nΠΡΟΣΟΧΗ: Συντακτικό λάθος. Η διόρθωση απέτυχε: {ai_err}"
+                        repaired_code = None
+                        if provider == "openai":
+                            client_ai = openai.OpenAI(api_key=api_key)
+                            res = client_ai.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": repair_prompt}], temperature=0.1)
+                            repaired_code = res.choices[0].message.content
+                        elif provider == "gemini":
+                            genai_client = genai.Client(api_key=api_key)
+                            res = genai_client.models.generate_content(model="gemini-robotics-er-1.5-preview", contents=repair_prompt)
+                            repaired_code = res.text
+                        elif provider == "groq":
+                            client_ai = Groq(api_key=api_key)
+                            res = client_ai.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": repair_prompt}], temperature=0.1)
+                            repaired_code = res.choices[0].message.content
+
+                        if repaired_code:
+                            repaired_code = repaired_code.replace("```python", "").replace("```", "").strip()
+                            with open(student_py_path, "w", encoding="utf-8") as f:
+                                f.write(repaired_code)
+                            student_code = repaired_code
+                            auto_fix_applied = True
+                            syntax_error_msg = "\n(Σημείωση: Ο κώδικας διορθώθηκε αυτόματα.)"
+                            func_violations = check_restrictions(student_code)
+                    except:
+                        syntax_error_msg = f"\nΠΡΟΣΟΧΗ: Συντακτικό λάθος. Η διόρθωση απέτυχε."
 
                 # --- 2. ΕΚΤΕΛΕΣΗ GRADER ---
                 test_results = grade_submission(test_path, student_py_path)
-
+                
                 if test_results.get('status') == 'Success':
                     total = test_results['summary']['total_tests']
                     passed = test_results['summary']['passed']
@@ -269,13 +281,12 @@ def evaluate_bulk():
                     total = passed = final_grade = 0
                     details = f"Grader Error: {test_results.get('message', 'Unknown')}"
 
-                # Πέναλτι
+                # Πέναλτι Restrictions
                 if "print_digits" in func_violations and total > 0:
-                    exercise_10_tests = 5 
-                    penalty_applied = (exercise_10_tests / total) * 10
+                    penalty_applied = (5 / total) * 10
                     final_grade = round(max(0, final_grade - penalty_applied), 2)
 
-                # --- 3. FEEDBACK ΜΕ GROQ ---
+                # --- 3. FEEDBACK LOGIC ---
                 fullPrompt = f"""
                 Είσαι βοηθός καθηγητή Python. 
                 Βαθμολογία: {final_grade}/10 ({passed}/{total} επιτυχίες)
@@ -283,23 +294,27 @@ def evaluate_bulk():
                 {syntax_error_msg}
                 Κώδικας: {student_code}
                 Σφάλματα: {details}
-                
-                ΟΔΗΓΙΕΣ: 
-                Ξεκίνα με τη βαθμολογία. Δώσε hints στα Ελληνικά. 
-                Αν έγινε Auto-Fix, ενημέρωσε τον φοιτητή οτι εγινε Auto-Fix ωστε να μπορεσουν να τρεξουν οι ασκησεις.
+                ΟΔΗΓΙΕΣ: Ξεκίνα με τη βαθμολογία. Δώσε hints στα Ελληνικά.
                 """
 
                 try:
-                    # Χρήση Groq για Feedback
-                    response = client.chat.completions.create(
-                        model=MODEL_NAME,
-                        messages=[{"role": "user", "content": fullPrompt}],
-                        temperature=0.5
-                    )
-                    ai_answer = response.choices[0].message.content
-                except:
-                    ai_answer = f"Τελικός Βαθμός: {final_grade}/10. (AI feedback unavailable)"
+                    ai_answer = ""
+                    if provider == "openai":
+                        client_ai = openai.OpenAI(api_key=api_key)
+                        res = client_ai.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": fullPrompt}], temperature=0.5)
+                        ai_answer = res.choices[0].message.content
+                    elif provider == "gemini":
+                        genai_client = genai.Client(api_key=api_key)
+                        res = genai_client.models.generate_content(model="gemini-robotics-er-1.5-preview", contents=fullPrompt)
+                        ai_answer = res.text
+                    elif provider == "groq":
+                        client_ai = Groq(api_key=api_key)
+                        res = client_ai.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": fullPrompt}], temperature=0.5)
+                        ai_answer = res.choices[0].message.content
+                except Exception as e:
+                    ai_answer = f"Τελικός Βαθμός: {final_grade}/10. (AI feedback unavailable: {str(e)})"
 
+                # Αποθήκευση Feedback σε αρχείο TXT μέσα στο ZIP
                 feedback_filename = f"feedback_{file.replace('.py', '.txt')}"
                 with open(os.path.join(root, feedback_filename), "w", encoding="utf-8") as f_out:
                     f_out.write(ai_answer)
