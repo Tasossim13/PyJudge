@@ -39,27 +39,14 @@ h1{
   color: #22C55E;
 }
 
-.prompt-form {
-  background: rgba(15, 23, 42, 0.6); /* Ημιδιαφανές σκούρο μπλε */
-  backdrop-filter: blur(12px); /* Το μαγικό εφέ του θολώματος */
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1); /* Λεπτό "κρυστάλλινο" περίγραμμα */
-  border-radius: 20px;
-  padding: 40px;
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-  max-width: 800px;
-  margin: 60px auto;
-  color: #E5E7EB;
-  width: 100%;
-  resize: none;
-}
-
 .sectionTwo,
 .sectionThree{
   margin: 60px auto;
   max-width: 800px;
   text-align: center;
 }
+
+
 
 input[type="file"] {
   background: rgba(2, 6, 23, 0.5);
