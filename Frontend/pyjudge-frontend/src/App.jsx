@@ -148,7 +148,7 @@ const sendToBackend = async () => {
         Groq
         </button>
         </div>
-        <div className="mb-3 card p-3 shadow-sm">
+        <div className="mb-3 card p-3 shadow-sm ">
             <label className="form-label font-weight-bold">Enter Your {providerDetails[provider].label}:</label>
             <input 
               type="text" 
@@ -198,7 +198,7 @@ const sendToBackend = async () => {
           <div className="spinner-border text-success" role="status">
             <span className="visually-hidden">Loading...</span>
           </div>
-          <p>Το AI βαθμολογεί...</p>
+          
         </div>
       )}
 
