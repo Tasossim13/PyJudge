@@ -69,7 +69,13 @@ def evaluate():
     # 1. Λήψη δεδομένων και Παρόχου
     provider = request.form.get("provider", "groq") # Default αν δεν σταλεί
     api_key = request.form.get("api_key")
-    
+    identities = {
+        "openai": "Είσαι το μοντέλο GPT-4o της OpenAI.",
+        "gemini": "Είσαι το μοντέλο Gemini 1.5 Flash της Google.",
+        "groq": "Είσαι το μοντέλο Llama-3 της Meta, που τρέχει μέσω της Groq."
+    }
+    current_identity = identities.get(provider, "Είσαι ένας βοηθός καθηγητή.")
+
     if "student" not in request.files:
         return jsonify({"error": "missing student file"}), 400
     
@@ -151,18 +157,23 @@ def evaluate():
 
     # --- ΤΕΛΙΚΟ PROMPT ΓΙΑ FEEDBACK ---
     fullPrompt = f"""
-    Γραψε ποιο μοντελο εισαι (π.χ Chatpt, Gemini, Groq)
-    Είσαι ένας αυστηρός αλλά δίκαιος βοηθός καθηγητή Python. 
-    Βαθμολογία: {final_grade}/10 ({passed}/{total} επιτυχίες)
-    Auto-fix: {'Ναι' if auto_fix_applied else 'Όχι'}
+    {current_identity}
+    ΟΔΗΓΙΕΣ: 
+    1. Ξεκίνα την απάντησή σου γράφοντας ξεκάθαρα: ΜΟΝΤΈΛΟ:{provider.upper()} .
+    2. Είσαι αυστηρός βοηθός καθηγητή Python.
+    3. Δώσε επαγγελματικό feedback στα Ελληνικά με Hints. Εαν περασε ολα τα τεστ μην γραψεις σχολια, μονο βαθμολογια και ποσα τεστ περασε.
+    .
     
-    ΚΩΔΙΚΑΣ:
+    ΔΕΔΟΜΕΝΑ ΑΞΙΟΛΟΓΗΣΗΣ:
+    Βαθμολογία: {final_grade}/10
+    Επιτυχίες: {passed}/{total}
+    Αυτόματη Διόρθωση: {'Ναι' if auto_fix_applied else 'Όχι'}
+    
+    ΚΩΔΙΚΑΣ ΦΟΙΤΗΤΗ:
     {student_code}
 
-    ΣΦΑΛΜΑΤΑ:
+    ΣΦΑΛΜΑΤΑ GRADER:
     {details}
-    
-    Δώσε επαγγελματικό feedback με διαχωριστικά και Hints. Μην γραφεις γενικα κλπ
     """
     
     # --- ΚΛΗΣΗ ΓΙΑ ΤΕΛΙΚΟ FEEDBACK ---
@@ -192,6 +203,12 @@ def evaluate_bulk():
     provider = request.form.get("provider", "groq")
     zip_file = request.files.get("students_zip")
     solution_file = request.files.get("solution")
+    identities = {
+        "openai": "Είσαι το μοντέλο GPT-4o της OpenAI.",
+        "gemini": "Είσαι το μοντέλο Gemini 1.5 Flash της Google.",
+        "groq": "Είσαι το μοντέλο Llama-3 της Meta, που τρέχει μέσω της Groq."
+    }
+    current_identity = identities.get(provider, "Είσαι ένας βοηθός καθηγητή.")
     
     if not api_key or not zip_file or not solution_file:
         return jsonify({"error": "Missing API Key, ZIP or Solution file"}), 400
@@ -288,14 +305,22 @@ def evaluate_bulk():
 
                 # --- 3. FEEDBACK LOGIC ---
                 fullPrompt = f"""
-                Είσαι βοηθός καθηγητή Python. 
-                Βαθμολογία: {final_grade}/10 ({passed}/{total} επιτυχίες)
-                Auto-fix: {'ΝΑΙ' if auto_fix_applied else 'ΟΧΙ'}
-                {syntax_error_msg}
-                Κώδικας: {student_code}
-                Σφάλματα: {details}
-                ΟΔΗΓΙΕΣ: Ξεκίνα με τη βαθμολογία. Δώσε hints στα Ελληνικά.
-                """
+                    {current_identity}
+                    ΟΔΗΓΙΕΣ: 
+                    1. Ξεκίνα την απάντησή σου γράφοντας ξεκάθαρα: ΜΟΝΤΈΛΟ:{provider.upper()} .
+                    2. Είσαι βοηθός καθηγητή Python.
+                    3. Δώσε επαγγελματικό feedback στα Ελληνικά με Hints. Εαν περασε ολα τα τεστ μην γραψεις σχολια, μονο βαθμολογια και ποσα τεστ περασε.
+    
+                    ΔΕΔΟΜΕΝΑ ΑΞΙΟΛΟΓΗΣΗΣ:
+                    Βαθμολογία: {final_grade}/10
+                    Επιτυχίες: {passed}/{total}
+                    Αυτόματη Διόρθωση: {'Ναι' if auto_fix_applied else 'Όχι'}
+    
+                    ΚΩΔΙΚΑΣ ΦΟΙΤΗΤΗ:
+                    {student_code}
+                    ΣΦΑΛΜΑΤΑ GRADER:
+                    {details}
+                    """
 
                 try:
                     ai_answer = ""
